@@ -1,0 +1,6 @@
+{
+  "name": "sointuseuraaja",
+  "private": true,
+  "scripts": { "build": "node src/build.js", "test": "node src/test-follow.js" },
+  "devDependencies": { "terser": "5.36.0" }
+}

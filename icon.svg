@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" fill="#18202b"/>
+  <path d="M256 92c-88 0-150 34-150 92 0 92 96 214 150 236 54-22 150-144 150-236 0-58-62-92-150-92z" fill="#f0a540"/>
+  <text x="256" y="292" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="150" fill="#18202b">Am</text>
+</svg>

@@ -1,0 +1,620 @@
+<title>Sointuseuraaja</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: sticky "nuottiteline" bar on top (now / next / heard), the sheet below scrolls itself to keep the current line at ~30% height */
+:root {
+  --bg: #f3f5f7; --surface: #ffffff; --ink: #18202b; --muted: #5b6676; --line: #d9dee5;
+  --accent: #b5650d; --accent-soft: #fbe9d2; --chord: #1f5fa8; --good: #2f8a4c; --warn: #b5650d;
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+  --sheet-size: 18px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #10151d; --surface: #18202b; --ink: #e8ecf1; --muted: #9aa5b4; --line: #2a3442;
+  --accent: #f0a540; --accent-soft: #3a2a14; --chord: #7fb3ee; --good: #5cc27e; --warn: #f0a540; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #10151d; --surface: #18202b; --ink: #e8ecf1; --muted: #9aa5b4; --line: #2a3442;
+  --accent: #f0a540; --accent-soft: #3a2a14; --chord: #7fb3ee; --good: #5cc27e; --warn: #f0a540; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+.wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 980px; margin: 0 auto; }
+header.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+.bar-inner { display: flex; flex-direction: column; gap: 10px; padding-block: 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+h1 { font-family: var(--f-display); font-weight: 800; font-size: 20px; margin: 0; letter-spacing: -0.01em; margin-right: auto; }
+h1 small { font-family: var(--f-body); font-weight: 400; font-size: 13px; color: var(--muted); margin-left: 6px; }
+button, select, input[type="text"] { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; min-height: 38px; }
+button { cursor: pointer; }
+button:hover { border-color: var(--muted); }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 700; }
+button.primary.on { background: var(--good); border-color: var(--good); }
+select { max-width: 100%; }
+label.inline { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+details.tune summary { cursor: pointer; color: var(--muted); padding: 8px 4px; list-style-position: inside; }
+details.tune[open] { flex-basis: 100%; }
+details.tune .row { padding-block: 4px; }
+.status { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.cell { background: var(--bg); border-radius: 8px; padding: 6px 10px; min-width: 0; }
+.cell .lab { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.cell .val { font-family: var(--f-mono); font-weight: 600; font-size: 24px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cell.now .val { color: var(--accent); }
+.meter { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 4px; }
+.meter i { display: block; height: 100%; width: 0; background: var(--good); transition: width 80ms linear; }
+.msg { font-size: 13px; color: var(--muted); min-height: 1.2em; }
+.msg.err { color: var(--warn); }
+main { padding-block: 16px 60vh; }
+.sheet { font-family: var(--f-mono); font-size: var(--sheet-size); line-height: 1.35; }
+.blk { padding: 4px 8px; border-radius: 6px; margin: 0 -8px; transition: background-color 200ms; }
+.blk.cur { background: var(--accent-soft); }
+.blk pre { margin: 0; font: inherit; white-space: pre; }
+.blk .ch { color: var(--chord); font-weight: 600; cursor: pointer; border-radius: 4px; }
+.blk .ch:hover { text-decoration: underline; }
+.blk .ch.cur { background: var(--accent); color: var(--surface); box-shadow: 0 0 0 3px var(--accent); }
+.blk .ch.done { opacity: 0.55; }
+.scrollx { overflow-x: auto; }
+.hdr { font-family: var(--f-display); font-weight: 600; font-size: 0.8em; color: var(--muted); margin-top: 0.8em; letter-spacing: 0.02em; }
+a.bm { display: inline-block; padding: 10px 16px; border-radius: 8px; background: var(--accent); color: var(--surface); font-weight: 700; text-decoration: none; cursor: grab; }
+.song-title { font-family: var(--f-display); font-weight: 800; font-size: 28px; margin: 0 0 2px; text-wrap: balance; }
+.song-meta { color: var(--muted); margin: 0 0 14px; font-size: 14px; }
+dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); width: min(760px, calc(100vw - 24px)); max-height: calc(100vh - 24px); padding: 0; }
+dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+.dlg { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+.dlg h2 { font-family: var(--f-display); margin: 0; font-size: 20px; }
+.dlg p { margin: 0; color: var(--muted); font-size: 14px; max-width: 65ch; }
+textarea { font-family: var(--f-mono); font-size: 14px; width: 100%; min-height: 46vh; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); resize: vertical; }
+.dlg input[type="text"] { width: 100%; box-sizing: border-box; }
+.spacer { flex: 1; }
+@media (max-width: 520px) {
+  .cell .val { font-size: 20px; }
+  h1 small { display: none; }
+  .bar-inner { gap: 7px; padding-block: 8px; }
+  .cell { padding: 4px 8px; }
+  #btnNew .long, #btnInstall .long { display: none; }
+  .msg { font-size: 12px; }
+  #songSel { flex: 1 1 130px; min-width: 0; }
+  #btnEdit .long { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .blk, .meter i { transition: none; } }
+</style>
+
+<header class="bar">
+  <div class="wrap bar-inner">
+    <div class="row">
+      <h1>Sointuseuraaja <small>soita, se seuraa</small></h1>
+      <button id="btnListen" class="primary" type="button">🎤 Kuuntele</button>
+      <button id="btnDemo" type="button">▶ Demo</button>
+      <button id="btnClose" type="button" aria-label="Sulje sointuseuraaja" hidden>✕</button>
+    </div>
+    <div class="status" aria-live="polite">
+      <div class="cell now"><div class="lab">Nyt</div><div class="val" id="vNow">–</div></div>
+      <div class="cell"><div class="lab">Seuraava</div><div class="val" id="vNext">–</div></div>
+      <div class="cell"><div class="lab">Kuulen</div><div class="val" id="vHeard">–</div><div class="meter"><i id="vLevel"></i></div></div>
+    </div>
+    <div class="row">
+      <select id="songSel" aria-label="Kappale"></select>
+      <button id="btnInstall" type="button">⭐<span class="long"> Yhden klikkauksen nappi</span></button>
+      <button id="btnNew" type="button" aria-label="Liitä sointuarkki">＋<span class="long"> Liitä sointuarkki</span></button>
+      <button id="btnEdit" type="button" aria-label="Muokkaa kappaletta">✎<span class="long"> Muokkaa</span></button>
+      <button id="btnPrev" type="button" aria-label="Edellinen sointu">◀</button>
+      <button id="btnNext" type="button" aria-label="Seuraava sointu">▶</button>
+      <details class="tune">
+        <summary>Säädöt</summary>
+        <div class="row">
+          <label class="inline" for="capo">Capo
+            <select id="capo"></select></label>
+          <label class="inline" for="size">Tekstin koko
+            <input id="size" type="range" min="13" max="30" value="18"></label>
+          <label class="inline" for="sens">Mikin herkkyys
+            <input id="sens" type="range" min="1" max="10" value="6"></label>
+        </div>
+      </details>
+    </div>
+    <div class="msg" id="msg">Paina Kuuntele ja ala soittaa alusta. Napauta mitä tahansa sointua hypätäksesi siihen.</div>
+  </div>
+</header>
+
+<main class="wrap">
+  <h2 class="song-title" id="songTitle"></h2>
+  <p class="song-meta" id="songMeta"></p>
+  <div class="scrollx"><div class="sheet" id="sheet"></div></div>
+</main>
+
+<dialog id="dlg">
+  <form class="dlg" id="dlgForm" method="dialog">
+    <h2 id="dlgTitle">Liitä sointuarkki</h2>
+    <p>Kopioi kappale esim. Ultimate Guitarista (valitse teksti sivulta ja kopioi) ja liitä alle. Sointurivit sanojen yläpuolella, ChordPro-muoto [Am] ja Ultimate Guitarin [ch]-merkinnät toimivat.</p>
+    <input id="fTitle" type="text" placeholder="Kappaleen nimi" aria-label="Kappaleen nimi">
+    <textarea id="fText" spellcheck="false" aria-label="Sointuarkki" placeholder="[Verse]&#10;Am        F          C        G&#10;Tähän sanat sointujen alle..."></textarea>
+    <div class="row">
+      <button id="btnDelete" type="button">Poista kappale</button>
+      <span class="spacer"></span>
+      <button id="btnCancel" type="button">Peruuta</button>
+      <button id="btnSave" class="primary" type="submit">Tallenna</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgInstall">
+  <div class="dlg">
+    <h2>Avaa suoraan Ultimate Guitarista</h2>
+    <p>Lisää selaimeesi Sointuseuraaja-kirjanmerkki. Kun olet kappaleen sivulla Ultimate Guitarissa, paina kirjanmerkkiä: soinnut ja sanat aukeavat seuraajaan sivun päälle ja voit painaa heti Kuuntele. Kappale tallentuu samalla listaasi.</p>
+    <p><b>Tietokone (Chrome, Edge, Firefox):</b> näytä kirjanmerkkipalkki (Ctrl+Shift+B) ja raahaa tämä nappi palkkiin:</p>
+    <div class="row"><a id="bmLink" class="bm" href="#">🎸 Sointuseuraaja</a></div>
+    <p><b>Puhelin tai tabletti:</b> paina Kopioi koodi. Lisää sitten mikä tahansa sivu kirjanmerkiksi, muokkaa kirjanmerkkiä, anna nimeksi "Sointuseuraaja" ja liitä koodi osoitteen tilalle. Androidin Chromessa kirjanmerkki käynnistetään kirjoittamalla Ultimate Guitarin sivulla osoiteriville "Sointuseuraaja" ja napauttamalla tähdellä merkittyä ehdotusta.</p>
+    <p><b>Itse sovellus aloitusnäytölle:</b> avaa vivimedi-cloud.github.io/sointuseuraaja ja valitse selaimen valikosta "Lisää aloitusnäyttöön" (iPhonessa ja iPadissa Jaa-nappi → Lisää Koti-valikkoon).</p>
+    <div class="row"><button id="btnCopyBm" type="button">Kopioi koodi</button><span class="msg" id="copyMsg"></span></div>
+    <textarea id="bmCode" readonly aria-label="Kirjanmerkin koodi" hidden></textarea>
+    <p>Toimii myös muilla sointusivuilla: jos sivulta ei löydy sointuarkkia automaattisesti, maalaa soinnut ja sanat ja paina kirjanmerkkiä.</p>
+    <div class="row"><span class="spacer"></span><button id="btnInstallClose" class="primary" type="button">Valmis</button></div>
+  </div>
+</dialog>
+
+<script>
+(() => {
+"use strict";
+const ROOT = window.__sointuRoot || document, SC = window.__sointuScroller || null, HOST = window.__sointuHost || null;
+const OVERLAY = !!HOST;
+const $ = (id) => ROOT.getElementById(id);
+const BOOKMARKLET = "__BOOKMARKLET__";
+const scrollY0 = () => (SC ? SC.scrollTo({ top: 0 }) : scrollTo({ top: 0 }));
+
+// ---------- storage (per-viewer convenience) ----------
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("sointu:" + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("sointu:" + k, JSON.stringify(v)); } catch {} }
+};
+
+const SAMPLE = {
+  id: "sample", title: "Amazing Grace (esimerkki)", capo: 0, text:
+`[Säkeistö 1]
+G              G7        C        G
+Amazing grace, how sweet the sound
+G                    Em      A7   D
+That saved a wretch like me
+G               G7          C         G
+I once was lost, but now am found
+G         Em     D         G
+Was blind, but now I see
+
+[Säkeistö 2]
+G                G7          C           G
+'Twas grace that taught my heart to fear
+G                   Em    A7     D
+And grace my fears relieved
+G                G7          C        G
+How precious did that grace appear
+G         Em    D        G
+The hour I first believed`
+};
+
+// ---------- chord parsing ----------
+const PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11, H: 11 };
+const CHORD_RE = /^([A-H])([#b♯♭]?)((?:maj|min|m|M|dim|aug|sus|add|\+|°|ø|-|\d|\(|\)|b|#)*)(?:\/([A-H])([#b♯♭]?))?$/;
+function parseChord(tok) {
+  const m = CHORD_RE.exec(tok);
+  if (!m) return null;
+  let root = PC[m[1]];
+  if (m[2] === "#" || m[2] === "♯") root++;
+  if (m[2] === "b" || m[2] === "♭") root--;
+  let q = m[3].replace(/[()]/g, "");
+  let iv;
+  const has = (s) => q.includes(s);
+  if (has("ø") || has("m7b5")) iv = [0, 3, 6, 10];
+  else if (/^(m|min|-)(?!aj)/.test(q)) iv = [0, 3, 7];
+  else if (has("dim") || has("°")) iv = [0, 3, 6];
+  else if (has("aug") || has("+")) iv = [0, 4, 8];
+  else if (has("sus2")) iv = [0, 2, 7];
+  else if (has("sus")) iv = [0, 5, 7];
+  else if (q === "5") iv = [0, 7];
+  else iv = [0, 4, 7];
+  if (/maj|M7|M9/.test(q)) iv.push(11);
+  else if (/(^|[^d])(7|9|11|13)/.test(q) && !has("add")) iv.push((has("dim7") || has("°7")) ? 9 : 10);
+  if (/(^|[^1])6/.test(q)) iv.push(9);
+  if (has("add9") || has("add2")) iv.push(2);
+  let bass = null;
+  if (m[4]) { bass = PC[m[4]]; if (m[5] === "#" || m[5] === "♯") bass++; if (m[5] === "b" || m[5] === "♭") bass--; bass = (bass + 12) % 12; }
+  root = (root + 12) % 12;
+  const pcs = [...new Set(iv.map((i) => (root + i) % 12))];
+  return { name: tok, root, pcs, bass };
+}
+const NOISE_TOK = /^(\||\|\||-+|x\d+|\(x\d+\)|\d+x|N\.?C\.?|\(|\)|\*|\/|%|riff|intro:?|outro:?)$/i;
+function isChordLine(line) {
+  const toks = line.trim().split(/\s+/).filter(Boolean);
+  if (!toks.length) return false;
+  let c = 0, other = 0;
+  for (const t of toks) { if (parseChord(t.replace(/^\(|\)$/g, ""))) c++; else if (!NOISE_TOK.test(t)) other++; }
+  return c > 0 && other === 0;
+}
+
+function parseSheet(raw) {
+  let text = raw.replace(/\r/g, "").replace(/\[\/?tab\]/g, "").replace(/\[ch\](.*?)\[\/ch\]/g, "$1").replace(/\t/g, "    ");
+  let lines = text.split("\n");
+  // ChordPro inline [Am] -> chord line + lyric line
+  const out = [];
+  for (const line of lines) {
+    const inl = [...line.matchAll(/\[([^\]]+)\]/g)];
+    if (inl.length && inl.every((m) => parseChord(m[1].trim())) && line.replace(/\[[^\]]+\]/g, "").trim()) {
+      let lyric = "", chords = "", last = 0;
+      for (const m of inl) {
+        lyric += line.slice(last, m.index);
+        const pos = Math.max(lyric.length, chords.length ? chords.length + 1 : 0);
+        lyric = lyric.padEnd(pos, " ");
+        chords = chords.padEnd(pos, " ") + m[1].trim();
+        last = m.index + m[0].length;
+      }
+      lyric += line.slice(last);
+      out.push(chords, lyric);
+    } else out.push(line);
+  }
+  lines = out;
+  const blocks = [], events = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) { blocks.push({ type: "blank" }); continue; }
+    const hm = /^\s*\[([^\]]+)\]\s*$/.exec(line);
+    if (hm && !parseChord(hm[1].trim())) { blocks.push({ type: "hdr", text: hm[1] }); continue; }
+    if (isChordLine(line)) {
+      const b = { type: "chords", chordLine: line, lyric: null, toks: [] };
+      const nx = lines[i + 1];
+      if (nx != null && nx.trim() && !isChordLine(nx) && !/^\s*\[[^\]]+\]\s*$/.test(nx)) { b.lyric = nx; i++; }
+      for (const m of line.matchAll(/\S+/g)) {
+        const ch = parseChord(m[0].replace(/^\(|\)$/g, ""));
+        const t = { start: m.index, text: m[0], ev: -1 };
+        if (ch) { t.ev = events.length; events.push({ chord: ch, block: blocks.length }); }
+        b.toks.push(t);
+      }
+      blocks.push(b);
+      continue;
+    }
+    blocks.push({ type: "text", text: line });
+  }
+  return { blocks, events };
+}
+
+// ---------- templates & chroma ----------
+function chordKey(ch, capo) { return ch.pcs.map((p) => (p + capo) % 12).sort((a, b) => a - b).join(",") + "/" + (ch.bass == null ? "" : (ch.bass + capo) % 12); }
+function template(ch, capo) {
+  const v = new Float32Array(12);
+  const add = (pc, w) => { for (let h = 1; h <= 5; h++) v[(pc + Math.round(12 * Math.log2(h))) % 12] += w * Math.pow(0.55, h - 1); };
+  for (const p of ch.pcs) add((p + capo) % 12, p === ch.root ? 1.15 : 1);
+  if (ch.bass != null) add((ch.bass + capo) % 12, 0.6);
+  return zn(v);
+}
+function zn(v) { // zero-mean, unit-norm
+  let m = 0; for (const x of v) m += x; m /= v.length;
+  const o = new Float32Array(v.length); let n = 0;
+  for (let i = 0; i < v.length; i++) { o[i] = v[i] - m; n += o[i] * o[i]; }
+  n = Math.sqrt(n) || 1; for (let i = 0; i < v.length; i++) o[i] /= n;
+  return o;
+}
+const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
+
+// ---------- app state ----------
+let songs = store.get("songs", []);
+let curId = store.get("cur", "sample");
+let song, parsed, pos = 0;
+let capo = 0;
+let templates = new Map(); // key -> {vec, name}
+
+function allSongs() { return [SAMPLE, ...songs]; }
+function findSong(id) { return allSongs().find((s) => s.id === id) || SAMPLE; }
+
+function loadSong(id) {
+  song = findSong(id); curId = song.id; store.set("cur", curId);
+  parsed = parseSheet(song.text);
+  capo = song.capo || 0; $("capo").value = String(capo);
+  pos = 0; resetFollower();
+  buildTemplates();
+  render();
+  setPos(0, false);
+}
+function buildTemplates() {
+  templates = new Map();
+  for (const e of parsed.events) {
+    e.key = chordKey(e.chord, capo);
+    if (!templates.has(e.key)) templates.set(e.key, { vec: template(e.chord, capo), name: e.chord.name });
+  }
+}
+
+function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function render() {
+  $("songTitle").textContent = song.title;
+  const uniq = [...new Set(parsed.events.map((e) => e.chord.name))];
+  $("songMeta").textContent = parsed.events.length
+    ? `${parsed.events.length} sointua · ${uniq.join("  ")}${capo ? " · capo " + capo : ""}`
+    : "Arkista ei löytynyt sointuja. Muokkaa ja tarkista että soinnut ovat omilla riveillään.";
+  const sel = $("songSel"); sel.innerHTML = "";
+  for (const s of allSongs()) { const o = document.createElement("option"); o.value = s.id; o.textContent = s.title; sel.appendChild(o); }
+  sel.value = song.id;
+  $("btnEdit").disabled = song.id === "sample";
+  const html = parsed.blocks.map((b, bi) => {
+    if (b.type === "blank") return `<div class="blk" data-b="${bi}">&nbsp;</div>`;
+    if (b.type === "hdr") return `<div class="blk hdr" data-b="${bi}">${esc(b.text)}</div>`;
+    if (b.type === "text") return `<div class="blk" data-b="${bi}"><pre>${esc(b.text)}</pre></div>`;
+    let s = "", last = 0;
+    for (const t of b.toks) {
+      s += esc(b.chordLine.slice(last, t.start));
+      s += t.ev >= 0 ? `<span class="ch" data-e="${t.ev}">${esc(t.text)}</span>` : esc(t.text);
+      last = t.start + t.text.length;
+    }
+    return `<div class="blk" data-b="${bi}"><pre>${s}</pre>${b.lyric != null ? `<pre>${esc(b.lyric)}</pre>` : ""}</div>`;
+  }).join("");
+  $("sheet").innerHTML = html;
+}
+
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function setPos(p, scroll = true) {
+  if (!parsed.events.length) { $("vNow").textContent = "–"; $("vNext").textContent = "–"; return; }
+  pos = Math.max(0, Math.min(parsed.events.length - 1, p));
+  const sheet = $("sheet");
+  sheet.querySelectorAll(".ch.cur, .blk.cur").forEach((el) => el.classList.remove("cur"));
+  sheet.querySelectorAll(".ch").forEach((el) => el.classList.toggle("done", +el.dataset.e < pos));
+  const ce = sheet.querySelector(`.ch[data-e="${pos}"]`); ce && ce.classList.add("cur");
+  const be = sheet.querySelector(`.blk[data-b="${parsed.events[pos].block}"]`); be && be.classList.add("cur");
+  $("vNow").textContent = parsed.events[pos].chord.name;
+  $("vNext").textContent = parsed.events[pos + 1] ? parsed.events[pos + 1].chord.name : "loppu";
+  if (scroll && be) {
+    const barH = ROOT.querySelector("header.bar").offsetHeight;
+    const viewH = SC ? SC.clientHeight : innerHeight, y0 = SC ? SC.scrollTop - SC.getBoundingClientRect().top : scrollY;
+    const top = be.getBoundingClientRect().top + y0 - barH - (viewH - barH) * 0.28;
+    (SC || window).scrollTo({ top: Math.max(0, top), behavior: reduceMotion ? "auto" : "smooth" });
+  }
+}
+
+// ---------- audio ----------
+let ac = null, analyser = null, micStream = null, micSrc = null, timer = null;
+let demo = null; // {master, stopAt}
+let fbuf, tbuf, chromaS = new Float32Array(12), scoreS = new Map();
+const FFT = 8192;
+
+function msg(t, err = false) { const m = $("msg"); m.textContent = t; m.classList.toggle("err", err); }
+
+function ensureAudio() {
+  if (!ac) {
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = ac.createAnalyser(); analyser.fftSize = FFT; analyser.smoothingTimeConstant = 0.6;
+    fbuf = new Float32Array(analyser.frequencyBinCount); tbuf = new Float32Array(analyser.fftSize);
+  }
+  if (ac.state === "suspended") ac.resume();
+}
+
+function computeChroma() {
+  analyser.getFloatFrequencyData(fbuf);
+  analyser.getFloatTimeDomainData(tbuf);
+  let rms = 0; for (const x of tbuf) rms += x * x; rms = Math.sqrt(rms / tbuf.length);
+  const sr = ac.sampleRate, binHz = sr / FFT;
+  const kmin = Math.ceil(70 / binHz), kmax = Math.min(fbuf.length - 2, Math.floor(1900 / binHz));
+  const c = new Float32Array(12);
+  for (let k = kmin; k <= kmax; k++) {
+    const d = fbuf[k];
+    if (d < -95 || d < fbuf[k - 1] || d < fbuf[k + 1]) continue; // peaks only
+    const f = k * binHz, midi = 69 + 12 * Math.log2(f / 440), r = Math.round(midi), off = Math.abs(midi - r);
+    const w = Math.cos(Math.PI * off); if (w <= 0) continue;
+    const mag = Math.pow(10, d / 20);
+    c[((r % 12) + 12) % 12] += Math.sqrt(mag) * w * w * (f > 1000 ? 0.6 : 1);
+  }
+  return { chroma: c, rms };
+}
+
+// ---------- follower ----------
+// Online HMM over the chord sequence: belief[i] = chance the player is at chord i, given everything heard so far.
+// Moving on needs evidence that builds up over time, and the belief can flow back if a move was premature.
+let F;
+const BETA = 6;
+function resetFollower(at = pos) {
+  const n = parsed ? parsed.events.length : 0;
+  F = { b: new Float64Array(n), shown: at, cand: -1, held: 0, since: 0, durs: [], lastT: performance.now() };
+  if (n) F.b[Math.min(at, n - 1)] = 1;
+  scoreS = new Map(); chromaS = new Float32Array(12);
+}
+function median(a) { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; }
+function gate() { const v = +$("sens").value; return 0.03 * Math.pow(0.6, v); } // 1→0.018 … 10→0.0002
+function expectedDur() { return Math.min(6, Math.max(0.8, median(F.durs) || 2.4)); }
+
+function tick() {
+  const now = performance.now(), dt = Math.min(0.2, (now - F.lastT) / 1000); F.lastT = now;
+  const { chroma, rms } = computeChroma();
+  $("vLevel").style.width = Math.min(100, Math.round(Math.sqrt(rms / 0.15) * 100)) + "%";
+  if (rms <= gate()) { $("vHeard").textContent = "…"; return; } // silence: hold position
+  for (let i = 0; i < 12; i++) chromaS[i] = chromaS[i] * 0.55 + chroma[i] * 0.45;
+  const cz = zn(chromaS);
+  let best = null, bestS = -2;
+  for (const [k, t] of templates) {
+    const s = dot(cz, t.vec), prev = scoreS.has(k) ? scoreS.get(k) : s;
+    const v = prev * 0.5 + s * 0.5; scoreS.set(k, v);
+    if (v > bestS) { bestS = v; best = k; }
+  }
+  if (!best || !parsed.events.length) return;
+  $("vHeard").textContent = `${templates.get(best).name} ${Math.round(Math.max(0, bestS) * 100)}%`;
+  if (demo || micStream) follow(dt, bestS);
+}
+
+function follow(dt, top) {
+  const ev = parsed.events, n = ev.length, b = F.b;
+  F.since += dt;
+  const pAdv = Math.min(0.5, dt / expectedDur()), pSkip = pAdv * 0.04, pBack = 0.004, pStay = 1 - pAdv - pSkip - pBack;
+  const nb = new Float64Array(n);
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    let v = b[i] * (i === n - 1 ? 1 - pBack : pStay) + (i > 0 ? b[i - 1] * pAdv : 0) + (i > 1 ? b[i - 2] * pSkip : 0) + (i + 1 < n ? b[i + 1] * pBack : 0);
+    v *= Math.exp(BETA * ((scoreS.get(ev[i].key) ?? -1) - top));
+    nb[i] = v; sum += v;
+  }
+  // a little doubt around the shown spot, so a wrong turn can always be undone
+  // (nearer chords first, e.g. a repeated line just played)
+  let wsum = 0; const w = new Float64Array(n);
+  for (let i = Math.max(0, F.shown - 12); i < Math.min(n, F.shown + 9); i++) { w[i] = Math.exp(-Math.abs(i - F.shown) / 2.5); wsum += w[i]; }
+  for (let i = 0; i < n; i++) nb[i] = (sum > 0 ? nb[i] / sum : 0) * 0.998 + 0.002 * w[i] / wsum;
+  F.b = nb;
+  let am = 0; for (let i = 1; i < n; i++) if (nb[i] > nb[am]) am = i;
+  if (am === F.shown || nb[am] < 0.45) { F.cand = -1; F.held = 0; return; }
+  if (F.cand === am) F.held += dt; else { F.cand = am; F.held = dt; }
+  const need = am === F.shown + 1 ? 0.2 : am > F.shown ? 0.9 : 0.45;
+  if (F.held < need) return;
+  if (am === F.shown + 1 && F.since > 0.5) { F.durs.push(F.since); if (F.durs.length > 8) F.durs.shift(); }
+  F.shown = am; F.since = 0; F.cand = -1; F.held = 0;
+  setPos(am);
+}
+
+function startLoop() { if (!timer) { resetFollower(); timer = setInterval(tick, 50); } }
+function stopLoop() { if (timer && !micStream && !demo) { clearInterval(timer); timer = null; $("vHeard").textContent = "–"; $("vLevel").style.width = "0"; } }
+
+let wake = null;
+async function keepAwake(on) {
+  try { if (on && !wake && navigator.wakeLock) wake = await navigator.wakeLock.request("screen"); else if (!on && wake) { await wake.release(); wake = null; } } catch {}
+}
+
+async function toggleMic() {
+  if (micStream) {
+    micStream.getTracks().forEach((t) => t.stop()); micSrc && micSrc.disconnect(); micStream = null;
+    $("btnListen").classList.remove("on"); $("btnListen").textContent = "🎤 Kuuntele";
+    msg("Kuuntelu pysäytetty."); keepAwake(false); stopLoop(); return;
+  }
+  stopDemo();
+  ensureAudio();
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("nomedia");
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  } catch (e) {
+    micStream = null;
+    msg("Mikrofoniin ei saatu yhteyttä. Salli mikrofoni selaimen asetuksista. Jos avasit sovelluksen Clauden sisällä, avaa se osoitteesta vivimedi-cloud.github.io/sointuseuraaja.", true);
+    return;
+  }
+  micSrc = ac.createMediaStreamSource(micStream); micSrc.connect(analyser);
+  $("btnListen").classList.add("on"); $("btnListen").textContent = "■ Lopeta";
+  msg("Kuuntelen. Soita kappaletta, korostus seuraa sointuja. Väärässä kohdassa? Napauta oikeaa sointua.");
+  keepAwake(true); startLoop();
+}
+
+// ---------- demo: synthesized strums through the same detector ----------
+function strum(t, ch, out) {
+  const notes = [];
+  const bass = ch.bass != null ? ch.bass : ch.root;
+  notes.push(40 + ((bass - 4 + 12) % 12)); // E2..D#3
+  for (let o = 0; o < 2; o++) for (const p of ch.pcs) { const n = 52 + ((p - 4 + 12) % 12) + 12 * o; if (n <= 68) notes.push(n); }
+  notes.sort((a, b) => a - b);
+  notes.forEach((n, i) => {
+    const f = 440 * Math.pow(2, (n - 69) / 12), st = t + i * 0.018;
+    const o1 = ac.createOscillator(), g = ac.createGain(), lp = ac.createBiquadFilter();
+    o1.type = "sawtooth"; o1.frequency.value = f;
+    lp.type = "lowpass"; lp.frequency.setValueAtTime(3200, st); lp.frequency.exponentialRampToValueAtTime(700, st + 1.2);
+    g.gain.setValueAtTime(0.0001, st); g.gain.exponentialRampToValueAtTime(0.09, st + 0.006); g.gain.exponentialRampToValueAtTime(0.0008, st + 1.9);
+    o1.connect(lp); lp.connect(g); g.connect(out); o1.start(st); o1.stop(st + 2);
+  });
+}
+function startDemo(plan) {
+  if (micStream) toggleMic();
+  ensureAudio();
+  const master = ac.createGain(); master.gain.value = 0.7; master.connect(ac.destination); master.connect(analyser);
+  if (!plan) { plan = []; for (let i = pos; i < Math.min(parsed.events.length, pos + 16); i++) plan.push({ ev: i, dur: 2.0 }); }
+  let t = ac.currentTime + 0.25;
+  for (const step of plan) {
+    const ch = step.name ? parseChord(step.name) : parsed.events[step.ev].chord;
+    const c = { ...ch, pcs: ch.pcs.map((p) => (p + capo) % 12), root: (ch.root + capo) % 12, bass: ch.bass == null ? null : (ch.bass + capo) % 12 };
+    for (let k = 0; k < step.dur - 0.05; k += 1.0) strum(t + k, c, master);
+    t += step.dur;
+  }
+  demo = { master, end: setTimeout(stopDemo, (t - ac.currentTime + 2) * 1000) };
+  $("btnDemo").textContent = "■ Lopeta demo";
+  msg("Demo soittaa kappaleen soinnut tietokoneen äänellä ja seuranta kuuntelee sitä. Näin näet miten se toimii ilman kitaraa.");
+  startLoop();
+}
+function stopDemo() {
+  if (!demo) return;
+  clearTimeout(demo.end); try { demo.master.disconnect(); } catch {}
+  demo = null; $("btnDemo").textContent = "▶ Demo"; msg("Demo loppui."); stopLoop();
+}
+
+// ---------- UI wiring ----------
+for (let i = 0; i <= 9; i++) { const o = document.createElement("option"); o.value = String(i); o.textContent = i ? String(i) : "ei"; $("capo").appendChild(o); }
+$("btnListen").onclick = toggleMic;
+$("btnDemo").onclick = () => (demo ? stopDemo() : startDemo());
+const jumpTo = (p) => { const d = F.durs; setPos(p); resetFollower(pos); F.durs = d; };
+$("btnPrev").onclick = () => jumpTo(pos - 1);
+$("btnNext").onclick = () => jumpTo(pos + 1);
+$("sheet").addEventListener("click", (e) => { const c = e.target.closest(".ch"); if (c) jumpTo(+c.dataset.e); });
+$("songSel").onchange = (e) => { stopDemo(); loadSong(e.target.value); scrollY0(); };
+$("capo").onchange = (e) => {
+  capo = +e.target.value;
+  if (song.id !== "sample") { song.capo = capo; store.set("songs", songs); }
+  buildTemplates(); resetFollower(); render(); setPos(pos, false);
+};
+const sizeIn = $("size");
+sizeIn.value = store.get("size", 18);
+const applySize = () => { (HOST || document.documentElement).style.setProperty("--sheet-size", sizeIn.value + "px"); store.set("size", +sizeIn.value); };
+sizeIn.oninput = applySize; applySize();
+$("sens").value = store.get("sens", 6); $("sens").oninput = (e) => store.set("sens", +e.target.value);
+document.addEventListener("keydown", (e) => {
+  if (HOST && !HOST.isConnected) return;
+  if (e.target.closest("input, textarea, select, dialog")) return;
+  if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); $("btnNext").click(); }
+  if (e.key === "ArrowLeft") { e.preventDefault(); $("btnPrev").click(); }
+});
+
+let editing = null;
+function openEditor(s) {
+  editing = s;
+  $("dlgTitle").textContent = s ? "Muokkaa kappaletta" : "Liitä sointuarkki";
+  $("fTitle").value = s ? s.title : ""; $("fText").value = s ? s.text : "";
+  $("btnDelete").hidden = !s;
+  const d = $("dlg"); if (d.showModal) d.showModal(); else d.setAttribute("open", "");
+  setTimeout(() => (s ? $("fText") : $("fTitle")).focus(), 30);
+}
+function closeEditor() { const d = $("dlg"); d.close ? d.close() : d.removeAttribute("open"); }
+$("btnNew").onclick = () => openEditor(null);
+$("btnEdit").onclick = () => song.id !== "sample" && openEditor(song);
+$("btnCancel").onclick = closeEditor;
+$("dlgForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = $("fText").value; if (!text.trim()) { $("fText").focus(); return; }
+  const firstLine = text.split("\n").find((l) => l.trim() && !isChordLine(l)) || "Nimetön";
+  const title = $("fTitle").value.trim() || firstLine.trim().slice(0, 40);
+  if (editing) { editing.title = title; editing.text = text; }
+  else { editing = { id: "s" + Date.now(), title, capo: 0, text }; songs.push(editing); }
+  store.set("songs", songs); closeEditor(); loadSong(editing.id); scrollY0();
+});
+$("btnDelete").onclick = () => {
+  if (!editing) return;
+  if ($("btnDelete").dataset.sure !== "1") { $("btnDelete").dataset.sure = "1"; $("btnDelete").textContent = "Varmasti? Paina uudelleen"; return; }
+  songs = songs.filter((s) => s !== editing); store.set("songs", songs);
+  $("btnDelete").dataset.sure = ""; $("btnDelete").textContent = "Poista kappale";
+  closeEditor(); loadSong("sample");
+};
+$("dlg").addEventListener("close", () => { $("btnDelete").dataset.sure = ""; $("btnDelete").textContent = "Poista kappale"; });
+
+// ---------- one-click bookmarklet ----------
+$("btnInstall").hidden = OVERLAY || BOOKMARKLET.startsWith("__");
+$("bmLink").href = BOOKMARKLET;
+$("bmLink").addEventListener("click", (e) => { e.preventDefault(); msgCopy("Raahaa nappi kirjanmerkkipalkkiin, älä klikkaa sitä tässä."); });
+function msgCopy(t) { $("copyMsg").textContent = t; }
+$("btnInstall").onclick = () => { msgCopy(""); const d = $("dlgInstall"); d.showModal ? d.showModal() : d.setAttribute("open", ""); };
+$("btnInstallClose").onclick = () => { const d = $("dlgInstall"); d.close ? d.close() : d.removeAttribute("open"); };
+$("btnCopyBm").onclick = () => {
+  const fallback = () => { const t = $("bmCode"); t.hidden = false; t.value = BOOKMARKLET; t.focus(); t.select(); msgCopy("Kopioi valittu teksti (Ctrl+C tai pitkä painallus)."); };
+  try { navigator.clipboard.writeText(BOOKMARKLET).then(() => msgCopy("Koodi kopioitu."), fallback); } catch { fallback(); }
+};
+
+// ---------- overlay mode (opened from the bookmarklet on a chord site) ----------
+if (OVERLAY) {
+  $("btnClose").hidden = false;
+  const close = () => { if (micStream) toggleMic(); stopDemo(); keepAwake(false); HOST.remove(); };
+  $("btnClose").onclick = close;
+  window.__sointuClose = close;
+  const imp = window.__sointuImport;
+  if (imp && imp.text && parseSheet(imp.text).events.length) {
+    let s = songs.find((x) => x.title === imp.title);
+    if (s) s.text = imp.text; else { s = { id: "s" + Date.now(), title: imp.title, capo: imp.capo || 0, text: imp.text }; songs.push(s); }
+    store.set("songs", songs); curId = s.id;
+    setTimeout(() => msg("Kappale haettu sivulta ja tallennettu listaasi. Paina Kuuntele ja ala soittaa."), 0);
+  } else setTimeout(() => msg("Tältä sivulta ei löytynyt sointuja. Maalaa soinnut ja sanat sivulta ja paina kirjanmerkkiä uudelleen.", true), 0);
+}
+
+resetFollower();
+loadSong(curId);
+window.__sointu = { parseSheet, parseChord, startDemo, get pos() { return pos; } };
+})();
+</script>

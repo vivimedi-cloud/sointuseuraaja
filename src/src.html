@@ -457,12 +457,17 @@ function follow(dt, top) {
   for (let i = Math.max(0, F.shown - 12); i < Math.min(n, F.shown + 9); i++) { w[i] = Math.exp(-Math.abs(i - F.shown) / 2.5); wsum += w[i]; }
   for (let i = 0; i < n; i++) nb[i] = (sum > 0 ? nb[i] / sum : 0) * 0.998 + 0.002 * w[i] / wsum;
   F.b = nb;
+  updateShown(dt, false);
+}
+// move the highlight when the belief has settled on another chord (force: lyrics said so)
+function updateShown(dt, force) {
+  const nb = F.b, n = nb.length;
   let am = 0; for (let i = 1; i < n; i++) if (nb[i] > nb[am]) am = i;
-  if (am === F.shown || nb[am] < 0.45) { F.cand = -1; F.held = 0; return; }
+  if (am === F.shown || nb[am] < (force ? 0.3 : 0.45)) { F.cand = -1; F.held = 0; return; }
   if (F.cand === am) F.held += dt; else { F.cand = am; F.held = dt; }
   const need = am === F.shown + 1 ? 0.2 : am > F.shown ? 0.9 : 0.45;
-  if (F.held < need) return;
-  if (am === F.shown + 1 && F.since > 0.5) { F.durs.push(F.since); if (F.durs.length > 8) F.durs.shift(); }
+  if (!force && F.held < need) return;
+  if (!force && am === F.shown + 1 && F.since > 0.5) { F.durs.push(F.since); if (F.durs.length > 8) F.durs.shift(); }
   F.shown = am; F.since = 0; F.cand = -1; F.held = 0;
   setPos(am);
 }
@@ -511,24 +516,31 @@ function matchLyrics(heard, around) {
   let best = null;
   for (let k = 0; k < words.length; k++) {
     const d = words[k].ev - around;
-    if (d < -12 || d > 16) continue;
+    const far = d < -12 || d > 16;
     // align tail ending at word k, walking backwards and allowing small gaps
     let sc = 0, wi = k, hits = 0;
     for (let h = tail.length - 1; h >= 0 && wi >= 0; h--) {
       let got = 0, at = -1;
-      for (let g = 0; g <= 2 && wi - g >= 0; g++) { const v = wordSim(tail[h], words[wi - g].w); if (v > got) { got = v; at = wi - g; } }
+      for (let g = 0; g <= (h === tail.length - 1 ? 0 : 2) && wi - g >= 0; g++) { const v = wordSim(tail[h], words[wi - g].w); if (v > got) { got = v; at = wi - g; } }
       if (got) { sc += got * (tail[h].length >= 5 ? 1.3 : 1); hits++; wi = at - 1; } else if (h === tail.length - 1) break;
     }
-    sc -= Math.max(0, Math.abs(d) - 3) * 0.08; // prefer nearby
+    sc -= Math.min(1, Math.max(0, Math.abs(d) - 3) * 0.04); // prefer nearby
+    if (far && (hits < 3 || sc < 3)) continue; // a far jump needs a clear phrase
     if (hits >= 2 && (!best || sc > best.score)) best = { ev: words[k].ev, score: sc, hits };
   }
   return best && best.score >= 1.6 ? best : null;
 }
-function lyricEvidence(ev) {
+// Pull the belief towards the chord the words were sung over; more matching words pull harder.
+// Recognition lags ~1 s, so the next chord gets a share too.
+function lyricEvidence(m) {
   if (!F || !F.b.length) return;
-  const b = F.b; let sum = 0;
-  for (let i = 0; i < b.length; i++) { if (i >= ev - 1 && i <= ev + 2) b[i] = b[i] * 5 + 0.02; sum += b[i]; }
-  for (let i = 0; i < b.length; i++) b[i] /= sum;
+  const b = F.b, n = b.length, a = m.hits >= 4 ? 0.85 : m.hits >= 3 ? 0.7 : 0.5;
+  const w = [[m.ev - 1, 0.1], [m.ev, 0.7], [m.ev + 1, 0.2]];
+  for (let i = 0; i < n; i++) b[i] *= 1 - a;
+  for (const [i, x] of w) if (i >= 0 && i < n) b[i] += a * x;
+  let sum = 0; for (let i = 0; i < n; i++) sum += b[i];
+  for (let i = 0; i < n; i++) b[i] /= sum;
+  updateShown(0, true);
 }
 
 let rec = null, recOn = false, heardWords = [], lastLyricEv = -1, lastLyricT = 0;
@@ -552,7 +564,7 @@ function startLyrics() {
       heardWords = ws;
       const m = matchLyrics(ws, F ? F.shown : pos), now = performance.now();
       $("vWords").innerHTML = "Laulu: " + (m ? "<b>✓</b> " : "") + esc(ws.slice(-6).join(" "));
-      if (m && (m.ev !== lastLyricEv || now - lastLyricT > 1500)) { lastLyricEv = m.ev; lastLyricT = now; lyricEvidence(m.ev); }
+      if (m && (m.ev !== lastLyricEv || now - lastLyricT > 1500)) { lastLyricEv = m.ev; lastLyricT = now; lyricEvidence(m); }
     };
     rec.onstart = () => { if (!heardWords.length) $("vWords").textContent = "Laulu: kuuntelen… (laula, niin sanat näkyvät tässä)"; };
     rec.onerror = (e) => {

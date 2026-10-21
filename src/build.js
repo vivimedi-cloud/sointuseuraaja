@@ -19,12 +19,21 @@ const ROOT = path.join(__dirname, "..");
 .app *{box-sizing:border-box}[hidden]{display:none!important}
 header.bar{top:0}`;
   const grab = `function(){
+  var title=document.title.split(/ (?:by|chords|tab|ukulele|–|-|\\|) /i)[0].trim();
   var sel=String(getSelection()||"");
-  if(sel.trim().split("\\n").length>2)return{title:document.title.split(/ (?:by|chords|tab|–|-|\\|) /i)[0].trim(),text:sel};
-  try{var st=document.querySelector(".js-store");if(st){var d=JSON.parse(st.getAttribute("data-content")).store.page.data;var t=d.tab||{},w=d.tab_view&&d.tab_view.wiki_tab;
-    if(w&&w.content){var capo=(d.tab_view.meta&&+d.tab_view.meta.capo)||0;return{title:(t.song_name||document.title)+(t.artist_name?" – "+t.artist_name:""),text:w.content,capo:capo};}}}catch(e){}
-  var best="";document.querySelectorAll("pre,code,[class*=chord],[class*=Chord]").forEach(function(el){var x=el.innerText||"";if(x.length>best.length&&/\\n/.test(x))best=x;});
-  return best?{title:document.title.split(/ (?:by|chords|tab|–|-|\\|) /i)[0].trim(),text:best}:null;
+  if(sel.trim().split("\\n").length>2)return{title:title,text:sel};
+  // 1) Ultimate Guitar keeps the sheet as JSON in the page (.js-store data-content or a script); look for its [ch] markup
+  var srcs=[];document.querySelectorAll("[data-content]").forEach(function(e){srcs.push(e.getAttribute("data-content"));});
+  document.querySelectorAll("script:not([src])").forEach(function(e){if(e.textContent.indexOf("[ch]")>=0)srcs.push(e.textContent);});
+  for(var i=0;i<srcs.length;i++){var x=srcs[i]||"";if(x.indexOf("[ch]")<0)continue;
+    var m=/"content":"((?:[^"\\\\]|\\\\.)*?\\[ch\\](?:[^"\\\\]|\\\\.)*)"/.exec(x);if(!m)continue;
+    try{var text=JSON.parse('"'+m[1]+'"');var sn=/"song_name":"((?:[^"\\\\]|\\\\.)*)"/.exec(x),an=/"artist_name":"((?:[^"\\\\]|\\\\.)*)"/.exec(x),cp=/"capo":"?(\\d+)/.exec(x);
+      return{title:(sn?JSON.parse('"'+sn[1]+'"'):title)+(an?" – "+JSON.parse('"'+an[1]+'"'):""),text:text,capo:cp?+cp[1]:0};}catch(e){}}
+  // 2) otherwise the element on the page with the most chord lines
+  var CH=/^\\(?[A-H][#b]?(?:m|maj|min|dim|aug|sus|add|M|\\d|\\+|-|[#b])*(?:\\/[A-H][#b]?)?\\)?$/;
+  function score(t){var n=0;t.split("\\n").forEach(function(l){var w=l.trim().split(/\\s+/);if(w[0]&&w.every(function(x){return CH.test(x)||/^(\\||x\\d+)$/.test(x);}))n++;});return n;}
+  var best=null,bs=1;document.querySelectorAll("pre,code,article,section,div").forEach(function(e){var t=e.innerText||"";if(t.length>30000||t.length<20)return;var s=score(t);if(s>bs||(s===bs&&best&&t.length<best.length)){bs=s;best=t;}});
+  return best?{title:title,text:best}:null;
 }`;
   const boot = `(function(){
   if(document.getElementById("sointu-host")){window.__sointuClose&&window.__sointuClose();return;}

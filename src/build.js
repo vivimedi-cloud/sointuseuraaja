@@ -3,7 +3,8 @@ const fs = require("fs"), path = require("path");
 const { minify } = require("terser");
 const ROOT = path.join(__dirname, "..");
 (async () => {
-  const src = fs.readFileSync(path.join(__dirname, "src.html"), "utf8");
+  const VERSION = "6 (" + new Date().toISOString().slice(0, 10) + ")";
+  const src = fs.readFileSync(path.join(__dirname, "src.html"), "utf8").replace("__VERSION__", VERSION);
   const css = /<style>([\s\S]*?)<\/style>/.exec(src)[1];
   const markup = src.slice(src.indexOf('<header class="bar">'), src.lastIndexOf("<script>"));
   const app = /<script>([\s\S]*?)<\/script>/.exec(src)[1];
@@ -37,7 +38,13 @@ header.bar{top:0}`;
   ${app}
 })();`.replace("MARKUP", () => JSON.stringify(markup)).replace("__CSS__", () => JSON.stringify(ocss));
   const min = await minify(boot, { compress: { passes: 2 }, mangle: true, format: { ascii_only: false } });
-  const bm = "javascript:" + encodeURIComponent(min.code);
+  // overlay.js is the always-current version on the site; the bookmarklet loads it and falls back to its
+  // own built-in copy if the chord site blocks outside scripts.
+  fs.writeFileSync(path.join(ROOT, "overlay.js"), min.code);
+  const loader = (await minify(`(function(){if(document.getElementById("sointu-host")){window.__sointuClose&&window.__sointuClose();return;}
+var s=document.createElement("script");s.src="https://vivimedi-cloud.github.io/sointuseuraaja/overlay.js?"+Date.now();
+s.onerror=function(){s.remove();(function(){FALLBACK})();};document.documentElement.appendChild(s);})()`.replace("FALLBACK", () => min.code))).code;
+  const bm = "javascript:" + encodeURIComponent(loader);
     fs.writeFileSync(path.join(ROOT, "kirjanmerkki.txt"), bm);
   const page = src.replace('"__BOOKMARKLET__"', () => JSON.stringify(bm));
   fs.mkdirSync(path.join(ROOT, "build"), { recursive: true });

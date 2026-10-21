@@ -33,6 +33,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 700; }
 button.primary.on { background: var(--good); border-color: var(--good); }
 select { max-width: 100%; }
+.ver { color: var(--muted); font-size: 12px; }
 label.inline { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
 details.tune summary { cursor: pointer; color: var(--muted); padding: 8px 4px; list-style-position: inside; }
 details.tune[open] { flex-basis: 100%; }
@@ -114,6 +115,7 @@ textarea { font-family: var(--f-mono); font-size: 14px; width: 100%; min-height:
             <select id="lang"><option value="fi-FI">suomi</option><option value="en-US">englanti</option><option value="sv-SE">ruotsi</option><option value="">pois</option></select></label>
           <label class="inline" for="sens">Mikin herkkyys
             <input id="sens" type="range" min="1" max="10" value="6"></label>
+          <span class="inline ver">Versio __VERSION__</span>
         </div>
       </details>
     </div>
@@ -532,8 +534,11 @@ function lyricEvidence(ev) {
 let rec = null, recOn = false, heardWords = [], lastLyricEv = -1, lastLyricT = 0;
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 function startLyrics() {
-  const lang = $("lang").value;
-  if (!SR || !lang || !words.length) { $("vWords").hidden = true; return; }
+  const lang = $("lang").value, v = $("vWords");
+  v.hidden = false;
+  if (!SR) { v.textContent = "Laulu: tämä selain ei osaa tunnistaa puhetta. Käytä Chromea, Edgeä tai Safaria."; return; }
+  if (!lang) { v.textContent = "Laulu: tunnistus on pois päältä (Säädöt → Laulun tunnistus)."; return; }
+  if (!words.length) { v.textContent = "Laulu: tässä kappaleessa ei ole sanoja."; return; }
   recOn = true; heardWords = [];
   $("vWords").hidden = false; $("vWords").textContent = "Laulu: kuuntelen…";
   const boot = () => {
@@ -549,13 +554,15 @@ function startLyrics() {
       $("vWords").innerHTML = "Laulu: " + (m ? "<b>✓</b> " : "") + esc(ws.slice(-6).join(" "));
       if (m && (m.ev !== lastLyricEv || now - lastLyricT > 1500)) { lastLyricEv = m.ev; lastLyricT = now; lyricEvidence(m.ev); }
     };
+    rec.onstart = () => { if (!heardWords.length) $("vWords").textContent = "Laulu: kuuntelen… (laula, niin sanat näkyvät tässä)"; };
     rec.onerror = (e) => {
       if (e.error === "not-allowed" || e.error === "service-not-allowed" || e.error === "audio-capture") {
         recOn = false; $("vWords").textContent = "Laulun tunnistus ei ole käytössä tässä selaimessa tai laitteessa. Seuranta toimii soinnuilla.";
-      } else if (e.error === "network") $("vWords").textContent = "Laulun tunnistus tarvitsee verkkoyhteyden.";
+      } else if (e.error === "network") $("vWords").textContent = "Laulu: tunnistus tarvitsee verkkoyhteyden.";
+      else if (e.error !== "no-speech" && e.error !== "aborted") $("vWords").textContent = "Laulu: virhe " + e.error;
     };
     rec.onend = () => { if (recOn) setTimeout(boot, 250); };
-    try { rec.start(); } catch { recOn = false; }
+    try { rec.start(); } catch (err) { recOn = false; $("vWords").textContent = "Laulu: tunnistusta ei saatu käynnistettyä (" + (err && err.message || err) + ")."; }
   };
   boot();
 }

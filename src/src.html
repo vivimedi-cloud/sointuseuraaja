@@ -44,12 +44,13 @@ details.tune .row { padding-block: 4px; }
 .cell.now .val { color: var(--accent); }
 .meter { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 4px; }
 .meter i { display: block; height: 100%; width: 0; background: var(--good); transition: width 80ms linear; }
+.words { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.words b { color: var(--good); font-weight: 700; }
 .msg { font-size: 13px; color: var(--muted); min-height: 1.2em; }
 .msg.err { color: var(--warn); }
 main { padding-block: 16px 60vh; }
 .sheet { font-family: var(--f-mono); font-size: var(--sheet-size); line-height: 1.35; }
 .blk { padding: 4px 8px; border-radius: 6px; margin: 0 -8px; transition: background-color 200ms; }
-.blk.cur { background: var(--accent-soft); }
 .blk pre { margin: 0; font: inherit; white-space: pre; }
 .blk .ch { color: var(--chord); font-weight: 600; cursor: pointer; border-radius: 4px; }
 .blk .ch:hover { text-decoration: underline; }
@@ -94,6 +95,7 @@ textarea { font-family: var(--f-mono); font-size: 14px; width: 100%; min-height:
       <div class="cell"><div class="lab">Seuraava</div><div class="val" id="vNext">–</div></div>
       <div class="cell"><div class="lab">Kuulen</div><div class="val" id="vHeard">–</div><div class="meter"><i id="vLevel"></i></div></div>
     </div>
+    <div class="words" id="vWords" hidden aria-live="off"></div>
     <div class="row">
       <select id="songSel" aria-label="Kappale"></select>
       <button id="btnInstall" type="button">⭐<span class="long"> Yhden klikkauksen nappi</span></button>
@@ -108,6 +110,8 @@ textarea { font-family: var(--f-mono); font-size: 14px; width: 100%; min-height:
             <select id="capo"></select></label>
           <label class="inline" for="size">Tekstin koko
             <input id="size" type="range" min="13" max="30" value="18"></label>
+          <label class="inline" for="lang">Laulun tunnistus
+            <select id="lang"><option value="fi-FI">suomi</option><option value="en-US">englanti</option><option value="sv-SE">ruotsi</option><option value="">pois</option></select></label>
           <label class="inline" for="sens">Mikin herkkyys
             <input id="sens" type="range" min="1" max="10" value="6"></label>
         </div>
@@ -309,6 +313,7 @@ function loadSong(id) {
   capo = song.capo || 0; $("capo").value = String(capo);
   pos = 0; resetFollower();
   buildTemplates();
+  buildWords();
   render();
   setPos(0, false);
 }
@@ -460,6 +465,102 @@ function follow(dt, top) {
   setPos(am);
 }
 
+// ---------- sung lyrics: speech recognition nudges the follower ----------
+// Each lyric word is tied to the chord it is sung over. When recognised words match the sheet,
+// the chords around that spot get a boost in the follower's belief.
+let words = [];
+const normWord = (w) => w.toLowerCase().normalize("NFC").replace(/[^\p{L}\p{N}]/gu, "");
+function buildWords() {
+  words = [];
+  let lastEv = 0;
+  for (const b of parsed.blocks) {
+    if (b.type === "chords") {
+      const chs = b.toks.filter((t) => t.ev >= 0);
+      if (b.lyric != null) for (const m of b.lyric.matchAll(/[\p{L}\p{N}'’]+/gu)) {
+        let ev = chs.length ? -1 : lastEv;
+        for (const t of chs) if (t.start <= m.index + 1) ev = t.ev;
+        if (ev < 0) ev = Math.max(0, chs[0].ev - 1);
+        const w = normWord(m[0]); if (w) words.push({ w, ev });
+      }
+      if (chs.length) lastEv = chs[chs.length - 1].ev;
+    } else if (b.type === "text") {
+      for (const m of b.text.matchAll(/[\p{L}\p{N}'’]+/gu)) { const w = normWord(m[0]); if (w) words.push({ w, ev: lastEv }); }
+    }
+  }
+}
+function wordSim(a, b) {
+  if (a === b) return 1;
+  if (a.length < 3 || b.length < 3) return 0;
+  if (a.slice(0, 4) === b.slice(0, 4) && Math.min(a.length, b.length) >= 4) return 0.8; // Finnish endings vary
+  // one edit apart
+  if (Math.abs(a.length - b.length) > 1) return 0;
+  let i = 0, j = 0, e = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++e > 1) return 0;
+    if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
+  }
+  return e + (a.length - i) + (b.length - j) <= 1 ? 0.7 : 0;
+}
+// heard: recent recognised words (normalised). Returns {ev, score} of the best place in the sheet near `around`.
+function matchLyrics(heard, around) {
+  if (!words.length || !heard.length) return null;
+  const tail = heard.slice(-5);
+  let best = null;
+  for (let k = 0; k < words.length; k++) {
+    const d = words[k].ev - around;
+    if (d < -12 || d > 16) continue;
+    // align tail ending at word k, walking backwards and allowing small gaps
+    let sc = 0, wi = k, hits = 0;
+    for (let h = tail.length - 1; h >= 0 && wi >= 0; h--) {
+      let got = 0, at = -1;
+      for (let g = 0; g <= 2 && wi - g >= 0; g++) { const v = wordSim(tail[h], words[wi - g].w); if (v > got) { got = v; at = wi - g; } }
+      if (got) { sc += got * (tail[h].length >= 5 ? 1.3 : 1); hits++; wi = at - 1; } else if (h === tail.length - 1) break;
+    }
+    sc -= Math.max(0, Math.abs(d) - 3) * 0.08; // prefer nearby
+    if (hits >= 2 && (!best || sc > best.score)) best = { ev: words[k].ev, score: sc, hits };
+  }
+  return best && best.score >= 1.6 ? best : null;
+}
+function lyricEvidence(ev) {
+  if (!F || !F.b.length) return;
+  const b = F.b; let sum = 0;
+  for (let i = 0; i < b.length; i++) { if (i >= ev - 1 && i <= ev + 2) b[i] = b[i] * 5 + 0.02; sum += b[i]; }
+  for (let i = 0; i < b.length; i++) b[i] /= sum;
+}
+
+let rec = null, recOn = false, heardWords = [], lastLyricEv = -1, lastLyricT = 0;
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+function startLyrics() {
+  const lang = $("lang").value;
+  if (!SR || !lang || !words.length) { $("vWords").hidden = true; return; }
+  recOn = true; heardWords = [];
+  $("vWords").hidden = false; $("vWords").textContent = "Laulu: kuuntelen…";
+  const boot = () => {
+    if (!recOn) return;
+    rec = new SR(); rec.lang = lang; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+    rec.onresult = (e) => {
+      let txt = "";
+      for (let i = Math.max(0, e.results.length - 3); i < e.results.length; i++) txt += " " + e.results[i][0].transcript;
+      const ws = txt.split(/\s+/).map(normWord).filter(Boolean).slice(-8);
+      if (!ws.length) return;
+      heardWords = ws;
+      const m = matchLyrics(ws, F ? F.shown : pos), now = performance.now();
+      $("vWords").innerHTML = "Laulu: " + (m ? "<b>✓</b> " : "") + esc(ws.slice(-6).join(" "));
+      if (m && (m.ev !== lastLyricEv || now - lastLyricT > 1500)) { lastLyricEv = m.ev; lastLyricT = now; lyricEvidence(m.ev); }
+    };
+    rec.onerror = (e) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed" || e.error === "audio-capture") {
+        recOn = false; $("vWords").textContent = "Laulun tunnistus ei ole käytössä tässä selaimessa tai laitteessa. Seuranta toimii soinnuilla.";
+      } else if (e.error === "network") $("vWords").textContent = "Laulun tunnistus tarvitsee verkkoyhteyden.";
+    };
+    rec.onend = () => { if (recOn) setTimeout(boot, 250); };
+    try { rec.start(); } catch { recOn = false; }
+  };
+  boot();
+}
+function stopLyrics() { recOn = false; try { rec && rec.abort(); } catch {} rec = null; $("vWords").hidden = true; }
+
 function startLoop() { if (!timer) { resetFollower(); timer = setInterval(tick, 50); } }
 function stopLoop() { if (timer && !micStream && !demo) { clearInterval(timer); timer = null; $("vHeard").textContent = "–"; $("vLevel").style.width = "0"; } }
 
@@ -470,7 +571,7 @@ async function keepAwake(on) {
 
 async function toggleMic() {
   if (micStream) {
-    micStream.getTracks().forEach((t) => t.stop()); micSrc && micSrc.disconnect(); micStream = null;
+    micStream.getTracks().forEach((t) => t.stop()); micSrc && micSrc.disconnect(); micStream = null; stopLyrics();
     $("btnListen").classList.remove("on"); $("btnListen").textContent = "🎤 Kuuntele";
     msg("Kuuntelu pysäytetty."); keepAwake(false); stopLoop(); return;
   }
@@ -487,7 +588,7 @@ async function toggleMic() {
   micSrc = ac.createMediaStreamSource(micStream); micSrc.connect(analyser);
   $("btnListen").classList.add("on"); $("btnListen").textContent = "■ Lopeta";
   msg("Kuuntelen. Soita kappaletta, korostus seuraa sointuja. Väärässä kohdassa? Napauta oikeaa sointua.");
-  keepAwake(true); startLoop();
+  keepAwake(true); startLoop(); startLyrics();
 }
 
 // ---------- demo: synthesized strums through the same detector ----------
@@ -547,6 +648,9 @@ const sizeIn = $("size");
 sizeIn.value = store.get("size", 18);
 const applySize = () => { (HOST || document.documentElement).style.setProperty("--sheet-size", sizeIn.value + "px"); store.set("size", +sizeIn.value); };
 sizeIn.oninput = applySize; applySize();
+$("lang").value = store.get("lang", "fi-FI");
+$("lang").onchange = (e) => { store.set("lang", e.target.value); if (micStream) { stopLyrics(); startLyrics(); } };
+if (!SR) { $("lang").disabled = true; $("lang").title = "Tämä selain ei tue puheentunnistusta (käytä Chromea, Edgeä tai Safaria)"; }
 $("sens").value = store.get("sens", 6); $("sens").oninput = (e) => store.set("sens", +e.target.value);
 document.addEventListener("keydown", (e) => {
   if (HOST && !HOST.isConnected) return;
@@ -615,6 +719,6 @@ if (OVERLAY) {
 
 resetFollower();
 loadSong(curId);
-window.__sointu = { parseSheet, parseChord, startDemo, get pos() { return pos; } };
+window.__sointu = { parseSheet, parseChord, startDemo, matchLyrics, normWord, get words() { return words; }, get pos() { return pos; } };
 })();
 </script>

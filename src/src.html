@@ -261,8 +261,8 @@ function parseSheet(raw) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line.trim()) { blocks.push({ type: "blank" }); continue; }
-    const hm = /^\s*\[([^\]]+)\]\s*$/.exec(line);
-    if (hm && !parseChord(hm[1].trim())) { blocks.push({ type: "hdr", text: hm[1] }); continue; }
+    const hm = /^\s*\[([^\]]+)\]([^\[]*)$/.exec(line); // "[Intro]" or "[Intro] (let ring)"
+    if (hm && !parseChord(hm[1].trim()) && hm[2].length < 40) { blocks.push({ type: "hdr", text: (hm[1] + " " + hm[2].trim()).trim() }); continue; }
     if (isChordLine(line)) {
       const b = { type: "chords", chordLine: line, lyric: null, toks: [] };
       const nx = lines[i + 1];
@@ -370,6 +370,16 @@ function setPos(p, scroll = true) {
     const top = be.getBoundingClientRect().top + y0 - barH - (viewH - barH) * 0.28;
     (SC || window).scrollTo({ top: Math.max(0, top), behavior: reduceMotion ? "auto" : "smooth" });
   }
+}
+// Scroll so the song's start (the [Intro] heading or the first chord line) sits right under the top bar.
+function scrollToStart() {
+  if (!parsed.events.length) return;
+  let bi = parsed.events[0].block;
+  for (let k = bi - 1; k >= Math.max(0, bi - 3); k--) { const t = parsed.blocks[k].type; if (t === "hdr") { bi = k; break; } if (t !== "blank") break; }
+  const el = $("sheet").querySelector(`.blk[data-b="${bi}"]`); if (!el) return;
+  const barH = ROOT.querySelector("header.bar").offsetHeight;
+  const y0 = SC ? SC.scrollTop - SC.getBoundingClientRect().top : scrollY;
+  (SC || window).scrollTo({ top: Math.max(0, el.getBoundingClientRect().top + y0 - barH - 8) });
 }
 
 // ---------- audio ----------
@@ -657,7 +667,7 @@ const jumpTo = (p) => { const d = F.durs; setPos(p); resetFollower(pos); F.durs 
 $("btnPrev").onclick = () => jumpTo(pos - 1);
 $("btnNext").onclick = () => jumpTo(pos + 1);
 $("sheet").addEventListener("click", (e) => { const c = e.target.closest(".ch"); if (c) jumpTo(+c.dataset.e); });
-$("songSel").onchange = (e) => { stopDemo(); loadSong(e.target.value); scrollY0(); };
+$("songSel").onchange = (e) => { stopDemo(); loadSong(e.target.value); scrollToStart(); };
 $("capo").onchange = (e) => {
   capo = +e.target.value;
   if (song.id !== "sample") { song.capo = capo; store.set("songs", songs); }
@@ -698,7 +708,7 @@ $("dlgForm").addEventListener("submit", (e) => {
   const title = $("fTitle").value.trim() || firstLine.trim().slice(0, 40);
   if (editing) { editing.title = title; editing.text = text; }
   else { editing = { id: "s" + Date.now(), title, capo: 0, text }; songs.push(editing); }
-  store.set("songs", songs); closeEditor(); loadSong(editing.id); scrollY0();
+  store.set("songs", songs); closeEditor(); loadSong(editing.id); scrollToStart();
 });
 $("btnDelete").onclick = () => {
   if (!editing) return;
@@ -738,6 +748,7 @@ if (OVERLAY) {
 
 resetFollower();
 loadSong(curId);
+requestAnimationFrame(() => requestAnimationFrame(scrollToStart));
 window.__sointu = { parseSheet, parseChord, startDemo, matchLyrics, normWord, get words() { return words; }, get pos() { return pos; } };
 })();
 </script>

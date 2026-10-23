@@ -3,7 +3,7 @@ const fs = require("fs"), path = require("path");
 const { minify } = require("terser");
 const ROOT = path.join(__dirname, "..");
 (async () => {
-  const VERSION = "7 (" + new Date().toISOString().slice(0, 10) + ")";
+  const VERSION = "8 (" + new Date().toISOString().slice(0, 10) + ")";
   const src = fs.readFileSync(path.join(__dirname, "src.html"), "utf8").replace("__VERSION__", VERSION);
   const css = /<style>([\s\S]*?)<\/style>/.exec(src)[1];
   const markup = src.slice(src.indexOf('<header class="bar">'), src.lastIndexOf("<script>"));

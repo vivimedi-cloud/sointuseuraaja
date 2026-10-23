@@ -44,6 +44,11 @@ details.tune[open] { flex-basis: 100%; }
 details.tune .row { padding-block: 4px; }
 .status { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .cell { background: var(--bg); border-radius: 8px; padding: 6px 10px; min-width: 0; }
+.cell { display: flex; align-items: center; gap: 6px; }
+.cv { min-width: 0; flex: 1; }
+.diag { flex: none; color: var(--ink); line-height: 0; }
+.diag svg { width: 62px; height: 72px; display: block; }
+.cell.now .diag { color: var(--accent); }
 .cell .lab { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
 .cell .val { font-family: var(--f-mono); font-weight: 600; font-size: 24px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cell.now .val { color: var(--accent); }
@@ -74,6 +79,13 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
 textarea { font-family: var(--f-mono); font-size: 14px; width: 100%; min-height: 46vh; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); resize: vertical; }
 .dlg input[type="text"] { width: 100%; box-sizing: border-box; }
 .spacer { flex: 1; }
+@media (max-width: 700px) {
+  .status.withdiag { grid-template-columns: 1fr 1fr; }
+  .status.withdiag .cell:last-child { grid-column: 1 / -1; padding-block: 2px; }
+  .status.withdiag .cell:last-child .cv { display: flex; align-items: center; gap: 8px; }
+  .status.withdiag .cell:last-child .val { font-size: 16px; }
+  .status.withdiag .cell:last-child .meter { flex: 1; margin: 0; }
+}
 @media (max-width: 520px) {
   .cell .val { font-size: 20px; }
   h1 small { display: none; }
@@ -96,9 +108,9 @@ textarea { font-family: var(--f-mono); font-size: 14px; width: 100%; min-height:
       <button id="btnClose" type="button" aria-label="Sulje sointuseuraaja" hidden>✕</button>
     </div>
     <div class="status" aria-live="polite">
-      <div class="cell now"><div class="lab">Nyt</div><div class="val" id="vNow">–</div></div>
-      <div class="cell"><div class="lab">Seuraava</div><div class="val" id="vNext">–</div></div>
-      <div class="cell"><div class="lab">Kuulen</div><div class="val" id="vHeard">–</div><div class="meter"><i id="vLevel"></i></div></div>
+      <div class="cell now"><div class="cv"><div class="lab">Nyt</div><div class="val" id="vNow">–</div></div><div class="diag" id="dNow" hidden></div></div>
+      <div class="cell"><div class="cv"><div class="lab">Seuraava</div><div class="val" id="vNext">–</div></div><div class="diag" id="dNext" hidden></div></div>
+      <div class="cell"><div class="cv"><div class="lab">Kuulen</div><div class="val" id="vHeard">–</div><div class="meter"><i id="vLevel"></i></div></div></div>
     </div>
     <div class="words" id="vWords" hidden aria-live="off"></div>
     <div class="row">
@@ -120,6 +132,7 @@ textarea { font-family: var(--f-mono); font-size: 14px; width: 100%; min-height:
             <select id="capo"></select></label>
           <label class="inline" for="size">Tekstin koko
             <input id="size" type="range" min="13" max="30" value="18"></label>
+          <label class="inline" for="showDiag"><input id="showDiag" type="checkbox"> Sointuotteet</label>
           <label class="inline" for="lang">Laulun tunnistus
             <select id="lang"><option value="fi-FI">suomi</option><option value="en-US">englanti</option><option value="sv-SE">ruotsi</option><option value="">pois</option></select></label>
           <label class="inline" for="sens">Mikin herkkyys
@@ -291,6 +304,76 @@ function parseSheet(raw) {
 }
 
 // ---------- templates & chroma ----------
+// ---------- guitar chord diagrams ----------
+// Frets per string, low E → high e; -1 = not played. Open shapes first, then movable E- and A-shape barre chords.
+const OPEN = {
+  C: [-1,3,2,0,1,0], C7: [-1,3,2,3,1,0], Cmaj7: [-1,3,2,0,0,0], Cadd9: [-1,3,2,0,3,0], "C/G": [3,3,2,0,1,0], "C/E": [0,3,2,0,1,0],
+  D: [-1,-1,0,2,3,2], Dm: [-1,-1,0,2,3,1], D7: [-1,-1,0,2,1,2], Dm7: [-1,-1,0,2,1,1], Dmaj7: [-1,-1,0,2,2,2],
+  Dsus2: [-1,-1,0,2,3,0], Dsus4: [-1,-1,0,2,3,3], "D/F#": [2,0,0,2,3,2],
+  E: [0,2,2,1,0,0], Em: [0,2,2,0,0,0], E7: [0,2,0,1,0,0], Em7: [0,2,2,0,3,0], Esus4: [0,2,2,2,0,0], Emaj7: [0,2,1,1,0,0],
+  F: [1,3,3,2,1,1], Fmaj7: [-1,-1,3,2,1,0],
+  G: [3,2,0,0,0,3], G7: [3,2,0,0,0,1], "G/B": [-1,2,0,0,0,3], Gsus4: [3,3,0,0,1,3],
+  A: [-1,0,2,2,2,0], Am: [-1,0,2,2,1,0], A7: [-1,0,2,0,2,0], Am7: [-1,0,2,0,1,0], Amaj7: [-1,0,2,1,2,0],
+  Asus2: [-1,0,2,2,0,0], Asus4: [-1,0,2,2,3,0], "Am/G": [3,0,2,2,1,0],
+  B7: [-1,2,1,2,0,2],
+};
+const SHAPE_E = { "": [0,2,2,1,0,0], m: [0,2,2,0,0,0], "7": [0,2,0,1,0,0], m7: [0,2,0,0,0,0], maj7: [0,-1,1,1,0,-1], sus4: [0,2,2,2,0,0], "6": [0,2,2,1,2,0], "5": [0,2,2,-1,-1,-1] };
+const SHAPE_A = { "": [-1,0,2,2,2,0], m: [-1,0,2,2,1,0], "7": [-1,0,2,0,2,0], m7: [-1,0,2,0,1,0], maj7: [-1,0,2,1,2,0], sus2: [-1,0,2,2,0,0],
+  sus4: [-1,0,2,2,3,0], "6": [-1,0,2,2,2,2], m6: [-1,0,2,2,1,2], add9: [-1,0,2,4,2,0], dim: [-1,0,1,2,1,-1], dim7: [-1,0,1,2,1,2],
+  m7b5: [-1,0,1,0,1,-1], aug: [-1,0,3,2,2,1] };
+function suffixOf(rest, pcsRel) {
+  const map = { "": "", m: "m", min: "m", "-": "m", "7": "7", m7: "m7", min7: "m7", "-7": "m7", maj7: "maj7", M7: "maj7", maj: "", sus: "sus4",
+    sus4: "sus4", sus2: "sus2", "6": "6", m6: "m6", add9: "add9", add2: "add9", dim: "dim", "°": "dim", dim7: "dim7", "°7": "dim7",
+    m7b5: "m7b5", "ø": "m7b5", "ø7": "m7b5", aug: "aug", "+": "aug", "5": "5", "9": "7", "7sus4": "sus4", "2": "sus2" };
+  if (rest in map) return map[rest];
+  const has = (x) => pcsRel.includes(x); // unknown spelling: nearest basic shape
+  if (has(3)) return has(10) ? "m7" : "m";
+  return has(10) ? "7" : has(11) ? "maj7" : "";
+}
+function voicing(name) {
+  const m = /^([A-H])([#b♯♭]?)(.*?)(?:\/([A-H][#b♯♭]?))?$/.exec(name);
+  const ch = parseChord(name);
+  if (!m || !ch) return null;
+  const root = ch.root, rest = m[3].replace(/[()]/g, "");
+  const suf = suffixOf(rest, ch.pcs.map((p) => m12(p - root)));
+  const rn = NAMES[root], bn = ch.bass != null ? NAMES[ch.bass] : null;
+  if (bn && OPEN[rn + suf + "/" + bn]) return { f: OPEN[rn + suf + "/" + bn], name };
+  if (OPEN[rn + suf]) return { f: OPEN[rn + suf], name };
+  const cands = [];
+  const fe = m12(root - 4), fa = m12(root - 9);
+  if (SHAPE_E[suf]) cands.push(SHAPE_E[suf].map((x) => (x < 0 ? -1 : x + fe)));
+  if (SHAPE_A[suf]) cands.push(SHAPE_A[suf].map((x) => (x < 0 ? -1 : x + fa)));
+  if (!cands.length) return null;
+  const lo = (f) => Math.max(...f);
+  cands.sort((a, b) => lo(a) - lo(b));
+  return { f: cands[0], name };
+}
+function diagramSVG(v) {
+  const f = v.f, played = f.filter((x) => x > 0);
+  const top = played.length && Math.max(...played) > 4 ? Math.min(...played) : 1, rows = 4;
+  const X = (s) => 10 + s * 9, Y = (r) => 16 + r * 13;
+  let g = `<svg viewBox="0 0 64 74" role="img" aria-label="${esc(v.name)} ote">`;
+  g += top === 1 ? `<rect x="${X(0)}" y="${Y(0) - 2}" width="45" height="3" fill="currentColor"/>` : `<text x="1" y="${Y(0) + 9}" font-size="8" fill="currentColor">${top}</text>`;
+  for (let r = 0; r <= rows; r++) g += `<line x1="${X(0)}" y1="${Y(r)}" x2="${X(5)}" y2="${Y(r)}" stroke="currentColor" stroke-width="0.8" opacity="0.6"/>`;
+  for (let s = 0; s < 6; s++) g += `<line x1="${X(s)}" y1="${Y(0)}" x2="${X(s)}" y2="${Y(rows)}" stroke="currentColor" stroke-width="0.8" opacity="0.6"/>`;
+  // barre: lowest fret held on 3+ strings from the first played string upwards
+  const minF = played.length ? Math.min(...played) : 0, first = f.findIndex((x) => x >= 0);
+  const lastF = f.lastIndexOf(minF);
+  const barre = minF > 0 && f[first] === minF && lastF - first >= 2 && f.slice(first, lastF + 1).every((x) => x >= minF) ? [first, lastF] : null;
+  if (barre) g += `<rect x="${X(barre[0]) - 3.5}" y="${Y(minF - top + 0.5) - 3.5}" width="${X(barre[1]) - X(barre[0]) + 7}" height="7" rx="3.5" fill="currentColor"/>`;
+  f.forEach((x, s) => {
+    if (x < 0) g += `<text x="${X(s)}" y="10" font-size="8" text-anchor="middle" fill="currentColor">×</text>`;
+    else if (x === 0) g += `<circle cx="${X(s)}" cy="7" r="2.6" fill="none" stroke="currentColor" stroke-width="0.9"/>`;
+    else if (!(barre && x === minF)) g += `<circle cx="${X(s)}" cy="${Y(x - top + 0.5)}" r="3.6" fill="currentColor"/>`;
+  });
+  return g + "</svg>";
+}
+function showDiagram(el, name) {
+  const on = $("showDiag").checked, v = on && name ? voicing(name) : null;
+  ROOT.querySelector(".status").classList.toggle("withdiag", on);
+  el.hidden = !v; el.innerHTML = v ? diagramSVG(v) : "";
+}
+
 // ---------- transpose ----------
 const NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
 function trName(name, n) {
@@ -391,6 +474,8 @@ function setPos(p, scroll = true) {
   const be = sheet.querySelector(`.blk[data-b="${parsed.events[pos].block}"]`); be && be.classList.add("cur");
   $("vNow").textContent = cn(parsed.events[pos].chord);
   $("vNext").textContent = parsed.events[pos + 1] ? cn(parsed.events[pos + 1].chord) : "loppu";
+  showDiagram($("dNow"), cn(parsed.events[pos].chord));
+  showDiagram($("dNext"), parsed.events[pos + 1] ? cn(parsed.events[pos + 1].chord) : null);
   if (scroll && be) {
     const barH = ROOT.querySelector("header.bar").offsetHeight;
     const viewH = SC ? SC.clientHeight : innerHeight, y0 = SC ? SC.scrollTop - SC.getBoundingClientRect().top : scrollY;
@@ -713,6 +798,8 @@ const sizeIn = $("size");
 sizeIn.value = store.get("size", 18);
 const applySize = () => { (HOST || document.documentElement).style.setProperty("--sheet-size", sizeIn.value + "px"); store.set("size", +sizeIn.value); };
 sizeIn.oninput = applySize; applySize();
+$("showDiag").checked = !!store.get("diag", false);
+$("showDiag").onchange = (e) => { store.set("diag", e.target.checked); setPos(pos, false); };
 $("lang").value = store.get("lang", "fi-FI");
 $("lang").onchange = (e) => { store.set("lang", e.target.value); if (micStream) { stopLyrics(); startLyrics(); } };
 if (!SR) { $("lang").disabled = true; $("lang").title = "Tämä selain ei tue puheentunnistusta (käytä Chromea, Edgeä tai Safaria)"; }
@@ -785,6 +872,6 @@ if (OVERLAY) {
 resetFollower();
 loadSong(curId);
 requestAnimationFrame(() => requestAnimationFrame(scrollToStart));
-window.__sointu = { parseSheet, parseChord, startDemo, matchLyrics, normWord, get words() { return words; }, get pos() { return pos; } };
+window.__sointu = { voicing, parseSheet, parseChord, startDemo, matchLyrics, normWord, get words() { return words; }, get pos() { return pos; } };
 })();
 </script>

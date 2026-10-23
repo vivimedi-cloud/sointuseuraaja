@@ -33,6 +33,10 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 700; }
 button.primary.on { background: var(--good); border-color: var(--good); }
 select { max-width: 100%; }
+.tr { display: inline-flex; align-items: center; gap: 4px; }
+.tr button { min-width: 38px; font-weight: 700; }
+.trval { font-family: var(--f-mono); font-weight: 600; min-width: 3.2ch; text-align: center; color: var(--muted); }
+.trval.on { color: var(--accent); }
 .ver { color: var(--muted); font-size: 12px; }
 label.inline { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
 details.tune summary { cursor: pointer; color: var(--muted); padding: 8px 4px; list-style-position: inside; }
@@ -104,6 +108,11 @@ textarea { font-family: var(--f-mono); font-size: 14px; width: 100%; min-height:
       <button id="btnEdit" type="button" aria-label="Muokkaa kappaletta">✎<span class="long"> Muokkaa</span></button>
       <button id="btnPrev" type="button" aria-label="Edellinen sointu">◀</button>
       <button id="btnNext" type="button" aria-label="Seuraava sointu">▶</button>
+      <span class="tr" role="group" aria-label="Transponointi">
+        <button id="trDown" type="button" aria-label="Transponoi puolisävel alas">−</button>
+        <span id="trVal" class="trval" title="Transponointi puolisävelinä">±0</span>
+        <button id="trUp" type="button" aria-label="Transponoi puolisävel ylös">+</button>
+      </span>
       <details class="tune">
         <summary>Säädöt</summary>
         <div class="row">
@@ -282,12 +291,25 @@ function parseSheet(raw) {
 }
 
 // ---------- templates & chroma ----------
-function chordKey(ch, capo) { return ch.pcs.map((p) => (p + capo) % 12).sort((a, b) => a - b).join(",") + "/" + (ch.bass == null ? "" : (ch.bass + capo) % 12); }
+// ---------- transpose ----------
+const NAMES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
+function trName(name, n) {
+  if (!n) return name;
+  return name.replace(/(^|\/)([A-H])([#b♯♭]?)/g, (m, pre, l, acc) => {
+    let p = PC[l] + (acc === "#" || acc === "♯" ? 1 : acc === "b" || acc === "♭" ? -1 : 0);
+    return pre + NAMES[(((p + n) % 12) + 12) % 12];
+  });
+}
+let tr = 0;
+const cn = (ch) => trName(ch.name, tr); // chord name as shown
+const shift = () => capo + tr;            // written chord -> sounding pitch
+const m12 = (x) => ((x % 12) + 12) % 12;
+function chordKey(ch, capo) { return ch.pcs.map((p) => m12(p + capo)).sort((a, b) => a - b).join(",") + "/" + (ch.bass == null ? "" : m12(ch.bass + capo)); }
 function template(ch, capo) {
   const v = new Float32Array(12);
   const add = (pc, w) => { for (let h = 1; h <= 5; h++) v[(pc + Math.round(12 * Math.log2(h))) % 12] += w * Math.pow(0.55, h - 1); };
-  for (const p of ch.pcs) add((p + capo) % 12, p === ch.root ? 1.15 : 1);
-  if (ch.bass != null) add((ch.bass + capo) % 12, 0.6);
+  for (const p of ch.pcs) add(m12(p + capo), p === ch.root ? 1.15 : 1);
+  if (ch.bass != null) add(m12(ch.bass + capo), 0.6);
   return zn(v);
 }
 function zn(v) { // zero-mean, unit-norm
@@ -313,6 +335,7 @@ function loadSong(id) {
   song = findSong(id); curId = song.id; store.set("cur", curId);
   parsed = parseSheet(song.text);
   capo = song.capo || 0; $("capo").value = String(capo);
+  tr = song.tr || 0; showTr();
   pos = 0; resetFollower();
   buildTemplates();
   buildWords();
@@ -322,17 +345,17 @@ function loadSong(id) {
 function buildTemplates() {
   templates = new Map();
   for (const e of parsed.events) {
-    e.key = chordKey(e.chord, capo);
-    if (!templates.has(e.key)) templates.set(e.key, { vec: template(e.chord, capo), name: e.chord.name });
+    e.key = chordKey(e.chord, shift());
+    if (!templates.has(e.key)) templates.set(e.key, { vec: template(e.chord, shift()), name: cn(e.chord) });
   }
 }
 
 function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 function render() {
   $("songTitle").textContent = song.title;
-  const uniq = [...new Set(parsed.events.map((e) => e.chord.name))];
+  const uniq = [...new Set(parsed.events.map((e) => cn(e.chord)))];
   $("songMeta").textContent = parsed.events.length
-    ? `${parsed.events.length} sointua · ${uniq.join("  ")}${capo ? " · capo " + capo : ""}`
+    ? `${parsed.events.length} sointua · ${uniq.join("  ")}${capo ? " · capo " + capo : ""}${tr ? " · transponoitu " + (tr > 0 ? "+" : "−") + Math.abs(tr) : ""}`
     : "Arkista ei löytynyt sointuja. Muokkaa ja tarkista että soinnut ovat omilla riveillään.";
   const sel = $("songSel"); sel.innerHTML = "";
   for (const s of allSongs()) { const o = document.createElement("option"); o.value = s.id; o.textContent = s.title; sel.appendChild(o); }
@@ -342,11 +365,15 @@ function render() {
     if (b.type === "blank") return `<div class="blk" data-b="${bi}">&nbsp;</div>`;
     if (b.type === "hdr") return `<div class="blk hdr" data-b="${bi}">${esc(b.text)}</div>`;
     if (b.type === "text") return `<div class="blk" data-b="${bi}"><pre>${esc(b.text)}</pre></div>`;
-    let s = "", last = 0;
+    // keep chords over their words even when transposed names get longer or shorter
+    let s = "", last = 0, col = 0;
     for (const t of b.toks) {
-      s += esc(b.chordLine.slice(last, t.start));
-      s += t.ev >= 0 ? `<span class="ch" data-e="${t.ev}">${esc(t.text)}</span>` : esc(t.text);
-      last = t.start + t.text.length;
+      const gap = t.start - last, pad = last === 0 ? Math.max(0, t.start - col) : Math.max(1, t.start - col);
+      s += gap === pad ? esc(b.chordLine.slice(last, t.start)) : " ".repeat(pad);
+      col += pad;
+      const txt = t.ev >= 0 ? t.text.replace(parsed.events[t.ev].chord.name, cn(parsed.events[t.ev].chord)) : t.text;
+      s += t.ev >= 0 ? `<span class="ch" data-e="${t.ev}">${esc(txt)}</span>` : esc(txt);
+      last = t.start + t.text.length; col += txt.length;
     }
     return `<div class="blk" data-b="${bi}"><pre>${s}</pre>${b.lyric != null ? `<pre>${esc(b.lyric)}</pre>` : ""}</div>`;
   }).join("");
@@ -362,8 +389,8 @@ function setPos(p, scroll = true) {
   sheet.querySelectorAll(".ch").forEach((el) => el.classList.toggle("done", +el.dataset.e < pos));
   const ce = sheet.querySelector(`.ch[data-e="${pos}"]`); ce && ce.classList.add("cur");
   const be = sheet.querySelector(`.blk[data-b="${parsed.events[pos].block}"]`); be && be.classList.add("cur");
-  $("vNow").textContent = parsed.events[pos].chord.name;
-  $("vNext").textContent = parsed.events[pos + 1] ? parsed.events[pos + 1].chord.name : "loppu";
+  $("vNow").textContent = cn(parsed.events[pos].chord);
+  $("vNext").textContent = parsed.events[pos + 1] ? cn(parsed.events[pos + 1].chord) : "loppu";
   if (scroll && be) {
     const barH = ROOT.querySelector("header.bar").offsetHeight;
     const viewH = SC ? SC.clientHeight : innerHeight, y0 = SC ? SC.scrollTop - SC.getBoundingClientRect().top : scrollY;
@@ -644,7 +671,8 @@ function startDemo(plan) {
   let t = ac.currentTime + 0.25;
   for (const step of plan) {
     const ch = step.name ? parseChord(step.name) : parsed.events[step.ev].chord;
-    const c = { ...ch, pcs: ch.pcs.map((p) => (p + capo) % 12), root: (ch.root + capo) % 12, bass: ch.bass == null ? null : (ch.bass + capo) % 12 };
+    const k = (shift() % 12 + 12) % 12;
+    const c = { ...ch, pcs: ch.pcs.map((p) => (p + k) % 12), root: (ch.root + k) % 12, bass: ch.bass == null ? null : (ch.bass + k) % 12 };
     for (let k = 0; k < step.dur - 0.05; k += 1.0) strum(t + k, c, master);
     t += step.dur;
   }
@@ -668,6 +696,14 @@ $("btnPrev").onclick = () => jumpTo(pos - 1);
 $("btnNext").onclick = () => jumpTo(pos + 1);
 $("sheet").addEventListener("click", (e) => { const c = e.target.closest(".ch"); if (c) jumpTo(+c.dataset.e); });
 $("songSel").onchange = (e) => { stopDemo(); loadSong(e.target.value); scrollToStart(); };
+function showTr() { $("trVal").textContent = tr ? (tr > 0 ? "+" : "−") + Math.abs(tr) : "±0"; $("trVal").classList.toggle("on", !!tr); }
+function setTr(n) {
+  tr = ((n + 17) % 12 + 12) % 12 - 5; // keep within −5…+6
+  song.tr = tr; if (song.id !== "sample") store.set("songs", songs);
+  showTr(); buildTemplates(); const d = F.durs; resetFollower(pos); F.durs = d; render(); setPos(pos, false);
+}
+$("trUp").onclick = () => setTr(tr + 1);
+$("trDown").onclick = () => setTr(tr - 1);
 $("capo").onchange = (e) => {
   capo = +e.target.value;
   if (song.id !== "sample") { song.capo = capo; store.set("songs", songs); }

@@ -39,9 +39,8 @@ select { max-width: 100%; }
 .trval.on { color: var(--accent); }
 .ver { color: var(--muted); font-size: 12px; }
 label.inline { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
-details.tune summary { cursor: pointer; color: var(--muted); padding: 8px 4px; list-style-position: inside; }
-details.tune[open] { flex-basis: 100%; }
-details.tune .row { padding-block: 4px; }
+.tune-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.tune-panel { padding: 8px 10px; background: var(--bg); border-radius: 8px; }
 .status { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .cell { background: var(--bg); border-radius: 8px; padding: 6px 10px; min-width: 0; }
 .cell { display: flex; align-items: center; gap: 6px; }
@@ -125,9 +124,9 @@ textarea { font-family: var(--f-mono); font-size: 14px; width: 100%; min-height:
         <span id="trVal" class="trval" title="Transponointi puolisävelinä">±0</span>
         <button id="trUp" type="button" aria-label="Transponoi puolisävel ylös">+</button>
       </span>
-      <details class="tune">
-        <summary>Säädöt</summary>
-        <div class="row">
+      <button id="btnTune" class="tune-btn" type="button" aria-expanded="false" aria-controls="tunePanel">⚙ Säädöt</button>
+    </div>
+    <div class="row tune-panel" id="tunePanel" hidden>
           <label class="inline" for="capo">Capo
             <select id="capo"></select></label>
           <label class="inline" for="size">Tekstin koko
@@ -138,8 +137,6 @@ textarea { font-family: var(--f-mono); font-size: 14px; width: 100%; min-height:
           <label class="inline" for="sens">Mikin herkkyys
             <input id="sens" type="range" min="1" max="10" value="6"></label>
           <span class="inline ver">Versio __VERSION__</span>
-        </div>
-      </details>
     </div>
     <div class="msg" id="msg">Paina Kuuntele ja ala soittaa alusta. Napauta mitä tahansa sointua hypätäksesi siihen.</div>
   </div>
@@ -798,6 +795,7 @@ const sizeIn = $("size");
 sizeIn.value = store.get("size", 18);
 const applySize = () => { (HOST || document.documentElement).style.setProperty("--sheet-size", sizeIn.value + "px"); store.set("size", +sizeIn.value); };
 sizeIn.oninput = applySize; applySize();
+$("btnTune").onclick = () => { const p = $("tunePanel"), open = p.hidden; p.hidden = !open; $("btnTune").setAttribute("aria-expanded", String(open)); };
 $("showDiag").checked = !!store.get("diag", false);
 $("showDiag").onchange = (e) => { store.set("diag", e.target.checked); setPos(pos, false); };
 $("lang").value = store.get("lang", "fi-FI");
